@@ -3,22 +3,22 @@
     "token": "token-value",
     "image_name": "thousandeyes-appliance.rpi4.img.xz",
     "sshKey": "",
+    "_comment": "Add as many devices as needed by copying one of the existing device objects",
     "Devices": [
       {
         "Hostname": "abc1",
         "_comment": "To use DHCP, enter DHCP in the IP field and ignore the remaining networ fields.",
         "IP": "192.168.1.26",
         "Subnet_Mask": "255.255.255.0",
-        "Broadcast": "192.168.1.1",
         "Gateway": "192.168.1.1",
         "DNS1": "8.8.8.8",
         "DNS2": "4.2.2.2"
       },
       {
         "Hostname": "abc2",
+        "_comment": "To use DHCP, enter DHCP in the IP field and ignore the remaining networ fields.",
         "IP": "192.168.1.27",
         "Subnet_Mask": "255.255.255.0",
-        "Broadcast": "192.168.1.1",
         "Gateway": "192.168.1.1",
         "DNS1": "8.8.8.8",
         "DNS2": "4.2.2.2"
