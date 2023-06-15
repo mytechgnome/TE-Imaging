@@ -1,7 +1,21 @@
 import os
 import json
 import subprocess
-import re
+import ipaddress
+
+# Check if running as root
+if os.getuid() == 0:
+    print('Script Starting')
+else:
+    print('This needs to be run as root access. Exiting now.')
+    print('Restart the script using sudo')
+    quit()
+
+# ThousandEyes Raspberry Pi image customizer
+# Script created by Dan Kelcher
+# Github page: https://github.com/mytechgnome/TE-Imaging
+# Script documentation: https://www.mytechgnome.com/2023/06/13/automated-thousandeyes-raspberry-pi-image-customization/
+# Follow me on LinkedIn: https://www.linkedin.com/in/dkelcher/ and Twitter: https://twitter.com/Ipswitch
 
 def list_usb_storage_devices():
     # Run 'lsblk' command to get the list of block devices
@@ -46,6 +60,7 @@ else:
     print("Downloading image")
     # Download image
     os.system('wget https://app.thousandeyes.com/install/downloads/appliance/'+image)
+
 print('Checking if images has been decompressed.')
 if os.path.isfile(img):
    print("Image decompressed")
@@ -53,6 +68,7 @@ else:
     print("Decompressing image - this may take some time")
     # Uncompress the image
     os.system('unxz -k '+image)
+
 # Create a mountpoint
 print('Checking for mountppoint')
 if os.path.exists('/tmp/temount/'):
@@ -61,42 +77,72 @@ else:
     print('Creating mountpoint at /tmp/temount')
     os.system('mkdir /tmp/temount')
 
-#Set device-specific variables
+# Mount the image
+print('Mounting the image')
+os.system('mount -o loop,offset=269484032 '+img+' /tmp/temount/')
+print('Image mounted')
+
+# Apply Global configs
+print('Applying global configs')
+
+# Add account token
+os.system("sed -i 's/<account-token>/"+token+"/g' /tmp/temount/etc/te-agent.cfg")
+
+# Add SSH key
+if ssh == "":
+    print("No SSH key provided")
+else:
+    os.system('echo '+ssh+' >> /tmp/temount/etc/ssh/keys/thousandeyes/authorized_keys')
+
+# Add documentation link to image
+os.system('echo ThousandEyes Raspberry Pi image customizer >> /root/build.txt')
+os.system('echo Script created by Dan Kelcher >> /root/build.txt')
+os.system('echo Github page: https://github.com/mytechgnome/TE-Imaging >> /root/build.txt')
+os.system('echo Script documentation: https://www.mytechgnome.com/2023/06/13/automated-thousandeyes-raspberry-pi-image-customization/ >> /root/build.txt')
+os.system('echo Follow me on LinkedIn: https://www.linkedin.com/in/dkelcher/ and Twitter: https://twitter.com/Ipswitch >> /root/build.txt')
+
+# Collect hostname, IP, and DNS config files
+if os.path.exists('/tmp/teconfigs/'):
+    print('Config folder exists.')
+else:
+    os.system('mkdir /tmp/teconfigs')
+os.system('cp -p /tmp/temount/etc/network/interfaces /tmp/teconfigs/interfaces')
+os.system('cp -p /tmp/temount/etc/hostname /tmp/teconfigs/hostname')
+os.system('cp -p /tmp/temount/etc/systemd/resolved.conf /tmp/teconfigs/resolved.conf')
+
+# Set device-specific variables
 devices = data["Devices"]
 for device in devices:
     hostname = device["Hostname"]
     ip = device["IP"]
     mask = device["Subnet_Mask"]
-    broadcast = device["Broadcast"]
+    # Find broadcast address from IP and subnet
+    network = ipaddress.IPv4Network(ip + '/' + mask, strict=False)
+    broadcast = str(network.broadcast_address)
     gateway = device["Gateway"]
-    dns = device["DNS"]
+    dns1 = device["DNS1"]
+    dns2 = device["DNS2"]
+    if dns2 == "":
+        dns = dns1
+    else:
+        dns = dns1+' '+dns2
 
-    print("Customizing image for "+hostname)
-    uniqueImg = hostname+'.img'
-    # Create unique image file
-    print('Creating unique image file - '+uniqueImg)
-    os.system('rsync --progress '+img+' '+uniqueImg)
+    # Check if image is mounted
+    print('Checking for mountppoint')
+    if os.path.exists('/tmp/temount/etc/'):
+        print('Image mounted.')
+    else:
+        print('Mounting image')
+        os.system('mount -o loop,offset=269484032 '+img+' /tmp/temount/')
 
-    # Mount the image
-    print('Mounting image - this may take some time')
-    os.system('mount -o loop,offset=269484032 '+uniqueImg+' /tmp/temount/')
-    print('Image mounted')
-
-    # Add account token
-    os.system("sed -i 's/<account-token>/"+token+"/g' /tmp/temount/etc/te-agent.cfg")
+    # Restore default configuration files
+    os.system('cp -p /tmp/teconfigs/interfaces /tmp/temount/etc/network/interfaces')
+    os.system('cp -p /tmp/teconfigs/hostname /tmp/temount/etc/hostname')
+    os.system('cp -p /tmp/teconfigs/resolved.conf /tmp/temount/etc/systemd/resolved.conf')
 
     # Change hostname
     os.system("sed -i 's/tepi/"+hostname+"/g' /tmp/temount/etc/hostname")
-    
-    # Add SSH key
-    if ssh == "":
-        print("No SSH key provided")
-    else:
-        os.system('mkdir /tmp/temount/home/thousandeyes/.ssh')
-        os.system('echo '+ssh+' >> /tmp/temount/home/thousandeyes/.ssh/authorized_keys')
-    os.system('chmod 700 /tmp/temount/home/thousandeyes/.ssh')
-    os.system('chmod 600 /tmp/temount/home/thousandeyes/.ssh/authorized_keys')
-	
+
     # Set IP
     if ip == "DHCP":
         print("Using DHCP addressing")
@@ -107,13 +153,14 @@ for device in devices:
         os.system('echo netmask '+mask+' >> /tmp/temount/etc/network/interfaces')
         os.system('echo broadcast '+broadcast+' >> /tmp/temount/etc/network/interfaces')
         os.system('echo gateway '+gateway+' >> /tmp/temount/etc/network/interfaces')
-        os.system('echo dns-nameservers '+dns+' >> /tmp/temount/etc/network/interfaces')
-        os.system('umount /tmp/temount')
-    print("Image customization complete for "+hostname)
-    
-    # List USB storage devices
-    
+    # Add DNS servers
+        os.system("sed -i 's/#DNS=/DNS= "+dns+"/g' /tmp/temount/etc/systemd/resolved.conf")
 
+    # Unmount image
+    os.system('umount /tmp/temount')
+    print("Image customization complete for "+hostname)
+
+    # List USB storage devices
     target = 0
     while target == 0:
         usb_devices = list_usb_storage_devices()
@@ -125,20 +172,38 @@ for device in devices:
             print("USB Storage Devices:")
             for device in usb_devices:
                 print(device)
-            destination = input("Please enter the USB target") 
+            destination = input("Please enter the USB target")
             while destination not in usb_devices:
                 print("The target did not match an existing device.")
                 destination = input("Please enter the USB target")
-            target = destination   
-            print("Image will be flashed to "+target)  
+            target = destination
+            print("Image will be flashed to "+target)
         else:
             print("No USB storage devices found.")
             print('Insert SD card into USB adapter, and plug in the adapater.')
             print('Press Enter to scan for USB devices again.')
             input()
+
+    # Flash SD card
     input("Press Enter to begin flashing")
-    os.system('dd if='+uniqueImg+' of=/dev/'+target+' status=progress')
-    print("Flash complete. Please remove the SD card. If more cards need to be flashed insert the next card now.")
-    os.system('rm '+uniqueImg)
+    os.system('dd if='+img+' of=/dev/'+target+' status=progress')
+
+    print("Please remove the SD card. If more cards need to be flashed insert the next card now.")
     input("Press Enter to continue.")
-        
+
+# Flashing complete
+print('All images completed')
+
+# Clean up
+print('Cleaning up image files.')
+if os.path.exists('/tmp/teconfig/'):
+    os.system('rm /tmp/teconfigs/*')
+    os.system('rmdir /tmp/teconfigs/')
+if os.path.exists('/tmp/temount/etc/'):
+    os.system('umount /tmp/temount')
+if os.path.exists('/tmp/temount/'):
+    os.system('rmdir /tmp/temount')
+if os.path.isfile(img):
+    os.system('rm thousandeyes-appliance.rpi4.img')
+input('Cleanup complete. Press Enter to exit the script.')
+quit()
